@@ -13,9 +13,15 @@ from dotenv import load_dotenv
 # ────────────────────────────────────────
 # LOAD .ENV
 # ────────────────────────────────────────
+# Load .env jika ada (local), Railway pakai env vars langsung
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 dotenv_path = os.path.join(BASE_DIR, 'a2m.env')
-load_dotenv(dotenv_path=dotenv_path)
+if os.path.exists(dotenv_path):
+    load_dotenv(dotenv_path=dotenv_path)
+    print(f"📄 File .env ditemukan: local mode")
+else:
+    print(f"☁️ Berjalan di cloud mode (Railway/Render)")
+
 
 print(f"📁 Mencari .env di: {dotenv_path}")
 print(f"📄 File .env ditemukan: {os.path.exists(dotenv_path)}")
