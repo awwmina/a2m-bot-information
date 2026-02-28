@@ -9,6 +9,9 @@ import pytz
 import ssl
 import certifi
 import platform
+import html
+import json
+import random
 from dotenv import load_dotenv
 
 # ────────────────────────────────────────
@@ -49,68 +52,55 @@ HEADERS = {
 # HELPER: SSL CONNECTOR
 # ────────────────────────────────────────
 def make_connector():
-    if platform.system() == "Darwin":  # macOS lokal
+    if platform.system() == "Darwin":
         ssl_ctx = ssl.create_default_context(cafile=certifi.where())
         return aiohttp.TCPConnector(ssl=ssl_ctx)
-    else:  # Linux (Railway)
+    else:
         return aiohttp.TCPConnector()
 
+# ────────────────────────────────────────
+# DATA: FUN FACTS INDONESIA
+# ────────────────────────────────────────
+FUNFACTS_ID = [
+    "Indonesia adalah negara kepulauan terbesar di dunia dengan lebih dari 17.000 pulau.",
+    "Komodo, kadal terbesar di dunia, hanya ditemukan di Indonesia.",
+    "Indonesia memiliki lebih dari 700 bahasa daerah dari 300 kelompok etnis.",
+    "Borobudur adalah candi Buddha terbesar di dunia, terletak di Jawa Tengah.",
+    "Rafflesia arnoldii, bunga terbesar di dunia, tumbuh di hutan Sumatera dan Kalimantan.",
+    "Indonesia terletak di Ring of Fire dan memiliki sekitar 400 gunung berapi.",
+    "Pulau Jawa adalah pulau dengan kepadatan penduduk tertinggi di dunia.",
+    "Indonesia memiliki garis pantai sepanjang lebih dari 54.000 km, terpanjang kedua di dunia.",
+    "Orang utan yang berarti 'manusia hutan' dalam bahasa Melayu hanya ditemukan di Sumatera dan Kalimantan.",
+    "Batik Indonesia telah diakui UNESCO sebagai Warisan Budaya Takbenda sejak tahun 2009.",
+    "Gunung Jayawijaya di Papua memiliki salju abadi meskipun berada tepat di garis khatulistiwa.",
+    "Danau Toba di Sumatera adalah danau vulkanik terbesar di dunia.",
+    "Indonesia adalah penghasil kopi terbesar ketiga di dunia.",
+    "Indonesia adalah produsen kelapa sawit dan nikel terbesar di dunia.",
+    "Keris, senjata tradisional Indonesia, telah diakui UNESCO sebagai warisan budaya dunia.",
+    "Angklung, alat musik tradisional Sunda, telah diakui UNESCO sebagai warisan budaya.",
+    "Wayang kulit Indonesia telah diakui sebagai Warisan Budaya Takbenda oleh UNESCO.",
+    "Indonesia memiliki lebih dari 1.300 spesies burung, salah satu tertinggi di dunia.",
+    "Nasi goreng dan rendang masuk dalam daftar makanan terlezat di dunia versi CNN.",
+    "Indonesia adalah negara dengan populasi Muslim terbesar di dunia.",
+    "Candi Prambanan adalah kompleks candi Hindu terbesar di Indonesia.",
+    "Tari Saman dari Aceh telah diakui UNESCO sebagai warisan budaya tak benda.",
+    "Indonesia menghasilkan sekitar 10% dari total spesies tanaman di seluruh dunia.",
+    "Indonesia adalah negara demokrasi terbesar ketiga di dunia.",
+    "Segitiga Terumbu Karang yang mencakup Indonesia memiliki keanekaragaman laut tertinggi di dunia.",
+    "Indonesia adalah salah satu dari sedikit negara yang memiliki harimau, gajah, dan orangutan sekaligus.",
+    "Bahasa Indonesia digunakan oleh lebih dari 270 juta penduduk sebagai bahasa persatuan.",
+    "Indonesia adalah pengekspor timah terbesar di dunia.",
+    "Gunung Krakatau yang meletus pada 1883 menghasilkan ledakan terkeras yang pernah tercatat dalam sejarah.",
+    "Indonesia memiliki lebih dari 400 suku bangsa dengan tradisi dan budaya yang unik.",
+]
 
 # ────────────────────────────────────────
 # FUNGSI: FUN FACT HARIAN
 # ────────────────────────────────────────
 async def get_fun_fact():
-    try:
-        # Gunakan tanggal sebagai seed agar fun fact sama sepanjang hari
-        today = datetime.datetime.now()
-        seed = today.year * 10000 + today.month * 100 + today.day
-
-        url = f"https://opentdb.com/api.php?amount=1&type=multiple&seed={seed}"
-        async with aiohttp.ClientSession(connector=make_connector()) as session:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=10), headers=HEADERS) as res:
-                print(f"[FunFact] Status: {res.status}")
-                if res.status != 200:
-                    return await get_fun_fact_fallback(session)
-                data = await res.json(content_type=None)
-
-        results = data.get("results", [])
-        if not results:
-            return "Tidak ada fun fact tersedia hari ini."
-
-        item = results[0]
-
-        # Bersihkan HTML entities
-        import html
-        question = html.unescape(item.get("question", ""))
-        answer = html.unescape(item.get("correct_answer", ""))
-        category = html.unescape(item.get("category", ""))
-        difficulty = item.get("difficulty", "").capitalize()
-
-        difficulty_emoji = {"Easy": "🟢", "Medium": "🟡", "Hard": "🔴"}.get(difficulty, "⚪")
-
-        return (
-            f"📂 **Kategori:** {category} {difficulty_emoji} {difficulty}\n\n"
-            f"❓ **{question}**\n\n"
-            f"✅ **Jawaban:** ||{answer}||"
-        )
-
-    except Exception as e:
-        print(f"[FunFact] Exception: {e}")
-        return f"Gagal mengambil fun fact: {e}"
-
-
-async def get_fun_fact_fallback(session):
-    try:
-        url = "https://uselessfacts.jsph.pl/api/facts/random?language=en"
-        async with session.get(url, timeout=aiohttp.ClientTimeout(total=10), headers=HEADERS) as res:
-            if res.status != 200:
-                return "Tidak ada fun fact tersedia hari ini."
-            data = await res.json(content_type=None)
-            fact = data.get("text", "Tidak ada fun fact.")
-            return f"💡 **Did You Know?**\n_{fact}_"
-    except Exception as e:
-        return "Tidak ada fun fact tersedia hari ini."
-
+    today = datetime.datetime.now()
+    index = today.timetuple().tm_yday % len(FUNFACTS_ID)
+    return f"💡 {FUNFACTS_ID[index]}"
 
 # ────────────────────────────────────────
 # FUNGSI: ON THIS DAY
@@ -125,11 +115,9 @@ async def get_on_this_day():
                 print(f"[OnThisDay] Status: {res.status}")
                 if res.status != 200:
                     return f"Gagal mengambil data (status {res.status})."
-
-                import json
                 data = json.loads(await res.text())
 
-        events = data.get("events", data.get("onthisday", []))[:5]  # ← diubah ke 5
+        events = data.get("events", data.get("onthisday", []))[:5]
         if not events:
             return "Tidak ada data peristiwa hari ini."
 
@@ -139,15 +127,11 @@ async def get_on_this_day():
             text = re.sub(r'\[\d+\]', '', e.get("text", "")).strip()
             if len(text) > 100:
                 text = text[:100] + "..."
-
             pages = e.get("pages", [])
             if pages:
                 page_title = pages[0].get("title", "").replace(" ", "_")
                 link = f"https://en.wikipedia.org/wiki/{page_title}"
-                result.append(
-                    f"**{year}** — {text}\n"
-                    f"[Baca Selengkapnya...]({link})"
-                )
+                result.append(f"**{year}** — {text}\n[Baca Selengkapnya...]({link})")
             else:
                 result.append(f"**{year}** — {text}")
 
@@ -156,7 +140,6 @@ async def get_on_this_day():
     except Exception as e:
         print(f"[OnThisDay] Exception: {e}")
         return f"Gagal mengambil data: {e}"
-
 
 # ────────────────────────────────────────
 # FALLBACK: WIKIPEDIA FEATURED CONTENT
@@ -178,19 +161,15 @@ async def get_featured_wikipedia(session):
         tfa = data.get("tfa", {})
         if tfa:
             title = tfa.get("titles", {}).get("normalized", tfa.get("title", ""))
-            summary = tfa.get("extract", "")[:120] + "..."
+            summary = tfa.get("extract", "")[:50] + "..."
             link = tfa.get("content_urls", {}).get("mobile", {}).get("page", "#")
-            result.append(
-                f"**⭐ {title}**\n"
-                f"_{summary}_\n"
-                f"[Baca Selengkapnya...]({link})"
-            )
+            result.append(f"**⭐ {title}**\n_{summary}_\n[Baca Selengkapnya...]({link})")
 
         news = data.get("news", [])[:4]
         for n in news:
             story = re.sub(r'\[\[.*?\]\]', '', n.get("story", "")).strip()
-            if len(story) > 120:
-                story = story[:120] + "..."
+            if len(story) > 50:
+                story = story[:50] + "..."
             links = n.get("links", [])
             if links:
                 link = links[0].get("content_urls", {}).get("mobile", {}).get("page", "#")
@@ -201,7 +180,6 @@ async def get_featured_wikipedia(session):
     except Exception as e:
         print(f"[Featured] Exception: {e}")
         return "Tidak ada data Wikipedia tersedia hari ini."
-
 
 # ────────────────────────────────────────
 # FUNGSI: WIKIPEDIA TRENDING
@@ -245,44 +223,41 @@ async def get_news():
                             return await get_featured_wikipedia(session)
 
             articles = data.get("items", [{}])[0].get("articles", [])
-            filtered = [a for a in articles if a.get("article") not in skip][:5]  # ← diubah ke 5
+            filtered = [a for a in articles if a.get("article") not in skip][:5]
 
             if not filtered:
                 return await get_featured_wikipedia(session)
 
             async def fetch_summary(article):
-    raw_title = article.get("article", "")
-    title = raw_title.replace("_", " ")
-    # Potong judul jika terlalu panjang
-    if len(title) > 35:
-        title = title[:35] + "..."
-    views = f"{article.get('views', 0):,}"
-    link = f"{wiki_base}{raw_title}"
+                raw_title = article.get("article", "")
+                title = raw_title.replace("_", " ")
+                if len(title) > 35:
+                    title = title[:35] + "..."
+                views = f"{article.get('views', 0):,}"
+                link = f"{wiki_base}{raw_title}"
 
-    async with session.get(
-        f"{summary_base}{raw_title}",
-        timeout=aiohttp.ClientTimeout(total=10),
-        headers=HEADERS
-    ) as r:
-        s = await r.json(content_type=None)
-        summary = s.get("extract", "Tidak ada ringkasan.")
-        # Diperkecil ke 50 karakter agar 5 artikel muat dalam 1024 chars
-        if len(summary) > 50:
-            summary = summary[:50] + "..."
+                async with session.get(
+                    f"{summary_base}{raw_title}",
+                    timeout=aiohttp.ClientTimeout(total=10),
+                    headers=HEADERS
+                ) as r:
+                    s = await r.json(content_type=None)
+                    summary = s.get("extract", "Tidak ada ringkasan.")
+                    if len(summary) > 50:
+                        summary = summary[:50] + "..."
 
-    return (
-        f"**{title}**\n"
-        f"_{summary}_\n"
-        f"👁️ {views} views • [Baca Selengkapnya...]({link})"
-    )
+                return (
+                    f"**{title}**\n"
+                    f"_{summary}_\n"
+                    f"👁️ {views} views • [Baca Selengkapnya...]({link})"
+                )
 
-    results = await asyncio.gather(*[fetch_summary(a) for a in filtered])
-    return "\n\n".join(results)
+            results = await asyncio.gather(*[fetch_summary(a) for a in filtered])
+            return "\n\n".join(results)
 
     except Exception as e:
         print(f"[Wikipedia] Exception: {e}")
         return f"Gagal mengambil data Wikipedia: {e}"
-
 
 # ────────────────────────────────────────
 # HELPER: BUILD EMBED
@@ -300,10 +275,9 @@ async def build_embed(title_prefix="📆 Daily Update"):
     )
     embed.add_field(name="🗓️ On This Day", value=on_this_day, inline=False)
     embed.add_field(name="📖 Artikel Wikipedia Trending Hari Ini", value=news, inline=False)
-    embed.add_field(name="🎲 Fun Fact & Trivia Hari Ini", value=fun_fact, inline=False)
+    embed.add_field(name="💡 Fun Fact Hari Ini", value=fun_fact, inline=False)
     embed.set_footer(text="DayBot • A2M Information")
     return embed
-
 
 # ────────────────────────────────────────
 # TASK: KIRIM OTOMATIS JAM 07.00 WIB
@@ -321,7 +295,6 @@ async def daily_update():
     else:
         print(f"⚠️ Channel ID {CHANNEL_ID} tidak ditemukan!")
 
-
 # ────────────────────────────────────────
 # EVENT: BOT SIAP
 # ────────────────────────────────────────
@@ -335,52 +308,6 @@ async def on_ready():
         daily_update.start()
 
 # ────────────────────────────────────────
-# FUNGSI: FUN FACT HARIAN (Bahasa Indonesia)
-# ────────────────────────────────────────
-FUNFACTS_ID = [
-    "Indonesia adalah negara kepulauan terbesar di dunia dengan lebih dari 17.000 pulau.",
-    "Komodo, kadal terbesar di dunia, hanya ditemukan di Indonesia.",
-    "Indonesia memiliki lebih dari 700 bahasa daerah dari 300 kelompok etnis.",
-    "Borobudur adalah candi Buddha terbesar di dunia, terletak di Jawa Tengah.",
-    "Rafflesia arnoldii, bunga terbesar di dunia, tumbuh di hutan Sumatera dan Kalimantan.",
-    "Indonesia terletak di Ring of Fire dan memiliki sekitar 400 gunung berapi.",
-    "Pulau Jawa adalah pulau dengan kepadatan penduduk tertinggi di dunia.",
-    "Indonesia memiliki garis pantai sepanjang lebih dari 54.000 km, terpanjang kedua di dunia.",
-    "Orang utan yang berarti 'manusia hutan' dalam bahasa Melayu hanya ditemukan di Sumatera dan Kalimantan.",
-    "Batik Indonesia telah diakui UNESCO sebagai Warisan Budaya Takbenda sejak tahun 2009.",
-    "Gunung Jayawijaya di Papua memiliki salju abadi meskipun berada tepat di garis khatulistiwa.",
-    "Danau Toba di Sumatera adalah danau vulkanik terbesar di dunia.",
-    "Indonesia adalah penghasil kopi terbesar ketiga di dunia.",
-    "Indonesia adalah produsen kelapa sawit dan nikel terbesar di dunia.",
-    "Keris, senjata tradisional Indonesia, telah diakui UNESCO sebagai warisan budaya dunia.",
-    "Angklung, alat musik tradisional Sunda, telah diakui UNESCO sebagai warisan budaya.",
-    "Wayang kulit Indonesia telah diakui sebagai Warisan Budaya Takbenda oleh UNESCO.",
-    "Indonesia memiliki lebih dari 1.300 spesies burung, salah satu tertinggi di dunia.",
-    "Nasi goreng dan rendang masuk dalam daftar makanan terlezat di dunia versi CNN.",
-    "Indonesia adalah negara dengan populasi Muslim terbesar di dunia.",
-    "Candi Prambanan adalah kompleks candi Hindu terbesar di Indonesia.",
-    "Tari Saman dari Aceh telah diakui UNESCO sebagai warisan budaya tak benda.",
-    "Indonesia menghasilkan sekitar 10% dari total spesies tanaman di seluruh dunia.",
-    "Indonesia adalah negara demokrasi terbesar ketiga di dunia.",
-    "Segitiga Terumbu Karang yang mencakup Indonesia memiliki keanekaragaman laut tertinggi di dunia.",
-    "Indonesia adalah salah satu dari sedikit negara yang memiliki harimau, gajah, dan orangutan sekaligus.",
-    "Bahasa Indonesia digunakan oleh lebih dari 270 juta penduduk sebagai bahasa persatuan.",
-    "Indonesia adalah pengekspor timah terbesar di dunia.",
-    "Gunung Krakatau yang meletus pada 1883 menghasilkan ledakan terkeras yang pernah tercatat dalam sejarah.",
-    "Indonesia memiliki lebih dari 400 suku bangsa dengan tradisi dan budaya yang unik.",
-]
-
-async def get_fun_fact():
-    today = datetime.datetime.now()
-    # Gunakan hari dalam setahun sebagai index agar berubah tiap hari
-    index = today.timetuple().tm_yday % len(FUNFACTS_ID)
-    fact = FUNFACTS_ID[index]
-    return f"💡 {fact}"
-
-
-
-
-# ────────────────────────────────────────
 # COMMAND: !today
 # ────────────────────────────────────────
 @bot.command()
@@ -389,6 +316,20 @@ async def today(ctx):
     embed = await build_embed("📆 Info Hari Ini")
     await ctx.send(embed=embed)
 
+# ────────────────────────────────────────
+# COMMAND: !trivia
+# ────────────────────────────────────────
+@bot.command()
+async def trivia(ctx):
+    random.seed(datetime.datetime.now().timestamp())
+    index = random.randint(0, len(FUNFACTS_ID) - 1)
+    embed = discord.Embed(
+        title="💡 Fun Fact Indonesia!",
+        description=FUNFACTS_ID[index],
+        color=0xF1C40F
+    )
+    embed.set_footer(text="DayBot • A2M Information")
+    await ctx.send(embed=embed)
 
 # ────────────────────────────────────────
 # COMMAND: !ping
@@ -396,26 +337,6 @@ async def today(ctx):
 @bot.command()
 async def ping(ctx):
     await ctx.send(f"🏓 Pong! Bot aktif. Latency: {round(bot.latency * 1000)}ms")
-
-# ────────────────────────────────────────
-# COMMAND: !trivia
-# ────────────────────────────────────────
-@bot.command()
-async def trivia(ctx):
-    today = datetime.datetime.now()
-    # Random berbeda setiap kali dipanggil dalam hari yang sama
-    import random
-    random.seed(today.timestamp())
-    index = random.randint(0, len(FUNFACTS_ID) - 1)
-    fact = FUNFACTS_ID[index]
-
-    embed = discord.Embed(
-        title="💡 Fun Fact Indonesia!",
-        description=fact,
-        color=0xF1C40F
-    )
-    embed.set_footer(text="DayBot • A2M Information")
-    await ctx.send(embed=embed)
 
 # ────────────────────────────────────────
 # JALANKAN BOT
