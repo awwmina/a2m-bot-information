@@ -251,27 +251,30 @@ async def get_news():
                 return await get_featured_wikipedia(session)
 
             async def fetch_summary(article):
-                raw_title = article.get("article", "")
-                title = raw_title.replace("_", " ")
-                views = f"{article.get('views', 0):,}"
-                link = f"{wiki_base}{raw_title}"
+    raw_title = article.get("article", "")
+    title = raw_title.replace("_", " ")
+    # Potong judul jika terlalu panjang
+    if len(title) > 35:
+        title = title[:35] + "..."
+    views = f"{article.get('views', 0):,}"
+    link = f"{wiki_base}{raw_title}"
 
-                async with session.get(
-                    f"{summary_base}{raw_title}",
-                    timeout=aiohttp.ClientTimeout(total=10),
-                    headers=HEADERS
-                ) as r:
-                    s = await r.json(content_type=None)
-                    summary = s.get("extract", "Tidak ada ringkasan.")
-                    if len(summary) > 120:
-                        summary = summary[:120] + "..."
+    async with session.get(
+        f"{summary_base}{raw_title}",
+        timeout=aiohttp.ClientTimeout(total=10),
+        headers=HEADERS
+    ) as r:
+        s = await r.json(content_type=None)
+        summary = s.get("extract", "Tidak ada ringkasan.")
+        # Diperkecil ke 50 karakter agar 5 artikel muat dalam 1024 chars
+        if len(summary) > 50:
+            summary = summary[:50] + "..."
 
-                return (
-                    f"**{title}**\n"
-                    f"_{summary}_\n"
-                    f"👁️ {views} views kemarin\n"
-                    f"[Baca Selengkapnya...]({link})"
-                )
+    return (
+        f"**{title}**\n"
+        f"_{summary}_\n"
+        f"👁️ {views} views • [Baca Selengkapnya...]({link})"
+    )
 
             results = await asyncio.gather(*[fetch_summary(a) for a in filtered])
             return "\n\n".join(results)
