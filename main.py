@@ -331,51 +331,49 @@ async def on_ready():
     if not daily_update.is_running():
         daily_update.start()
 
-
 # ────────────────────────────────────────
-# FUNGSI: RANDOM TRIVIA (untuk command !trivia)
+# FUNGSI: FUN FACT HARIAN (Bahasa Indonesia)
 # ────────────────────────────────────────
-async def get_random_trivia():
-    try:
-        # Tanpa seed = random setiap kali dipanggil
-        url = "https://opentdb.com/api.php?amount=1&type=multiple"
-        async with aiohttp.ClientSession(connector=make_connector()) as session:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=10), headers=HEADERS) as res:
-                print(f"[RandomTrivia] Status: {res.status}")
-                if res.status != 200:
-                    return "Gagal mengambil trivia, coba lagi!"
-                data = await res.json(content_type=None)
+FUNFACTS_ID = [
+    "Indonesia adalah negara kepulauan terbesar di dunia dengan lebih dari 17.000 pulau.",
+    "Komodo, kadal terbesar di dunia, hanya ditemukan di Indonesia.",
+    "Indonesia memiliki lebih dari 700 bahasa daerah dari 300 kelompok etnis.",
+    "Borobudur adalah candi Buddha terbesar di dunia, terletak di Jawa Tengah.",
+    "Rafflesia arnoldii, bunga terbesar di dunia, tumbuh di hutan Sumatera dan Kalimantan.",
+    "Indonesia terletak di Ring of Fire dan memiliki sekitar 400 gunung berapi.",
+    "Pulau Jawa adalah pulau dengan kepadatan penduduk tertinggi di dunia.",
+    "Indonesia memiliki garis pantai sepanjang lebih dari 54.000 km, terpanjang kedua di dunia.",
+    "Orang utan yang berarti 'manusia hutan' dalam bahasa Melayu hanya ditemukan di Sumatera dan Kalimantan.",
+    "Batik Indonesia telah diakui UNESCO sebagai Warisan Budaya Takbenda sejak tahun 2009.",
+    "Gunung Jayawijaya di Papua memiliki salju abadi meskipun berada tepat di garis khatulistiwa.",
+    "Danau Toba di Sumatera adalah danau vulkanik terbesar di dunia.",
+    "Indonesia adalah penghasil kopi terbesar ketiga di dunia.",
+    "Indonesia adalah produsen kelapa sawit dan nikel terbesar di dunia.",
+    "Keris, senjata tradisional Indonesia, telah diakui UNESCO sebagai warisan budaya dunia.",
+    "Angklung, alat musik tradisional Sunda, telah diakui UNESCO sebagai warisan budaya.",
+    "Wayang kulit Indonesia telah diakui sebagai Warisan Budaya Takbenda oleh UNESCO.",
+    "Indonesia memiliki lebih dari 1.300 spesies burung, salah satu tertinggi di dunia.",
+    "Nasi goreng dan rendang masuk dalam daftar makanan terlezat di dunia versi CNN.",
+    "Indonesia adalah negara dengan populasi Muslim terbesar di dunia.",
+    "Candi Prambanan adalah kompleks candi Hindu terbesar di Indonesia.",
+    "Tari Saman dari Aceh telah diakui UNESCO sebagai warisan budaya tak benda.",
+    "Indonesia menghasilkan sekitar 10% dari total spesies tanaman di seluruh dunia.",
+    "Indonesia adalah negara demokrasi terbesar ketiga di dunia.",
+    "Segitiga Terumbu Karang yang mencakup Indonesia memiliki keanekaragaman laut tertinggi di dunia.",
+    "Indonesia adalah salah satu dari sedikit negara yang memiliki harimau, gajah, dan orangutan sekaligus.",
+    "Bahasa Indonesia digunakan oleh lebih dari 270 juta penduduk sebagai bahasa persatuan.",
+    "Indonesia adalah pengekspor timah terbesar di dunia.",
+    "Gunung Krakatau yang meletus pada 1883 menghasilkan ledakan terkeras yang pernah tercatat dalam sejarah.",
+    "Indonesia memiliki lebih dari 400 suku bangsa dengan tradisi dan budaya yang unik.",
+]
 
-        results = data.get("results", [])
-        if not results:
-            return "Tidak ada trivia tersedia."
+async def get_fun_fact():
+    today = datetime.datetime.now()
+    # Gunakan hari dalam setahun sebagai index agar berubah tiap hari
+    index = today.timetuple().tm_yday % len(FUNFACTS_ID)
+    fact = FUNFACTS_ID[index]
+    return f"💡 {fact}"
 
-        import html
-        item = results[0]
-        question = html.unescape(item.get("question", ""))
-        answer = html.unescape(item.get("correct_answer", ""))
-        category = html.unescape(item.get("category", ""))
-        difficulty = item.get("difficulty", "").capitalize()
-        wrong_answers = [html.unescape(a) for a in item.get("incorrect_answers", [])]
-
-        difficulty_emoji = {"Easy": "🟢", "Medium": "🟡", "Hard": "🔴"}.get(difficulty, "⚪")
-
-        # Gabungkan semua pilihan jawaban dan acak urutannya
-        import random
-        all_answers = wrong_answers + [answer]
-        random.shuffle(all_answers)
-        options = "\n".join([f"{'🅰🅱🅾🆂'[i]} {a}" for i, a in enumerate(all_answers)])
-
-        return (
-            f"📂 **Kategori:** {category} {difficulty_emoji} {difficulty}\n\n"
-            f"❓ **{question}**\n\n"
-            f"{options}\n\n"
-            f"✅ **Jawaban:** ||{answer}||"
-        )
-
-    except Exception as e:
-        print(f"[RandomTrivia] Exception: {e}")
-        return f"Gagal mengambil trivia: {e}"
 
 
 
@@ -401,14 +399,19 @@ async def ping(ctx):
 # ────────────────────────────────────────
 @bot.command()
 async def trivia(ctx):
-    await ctx.send("🎲 Mengambil trivia, mohon tunggu...")
-    result = await get_random_trivia()
+    today = datetime.datetime.now()
+    # Random berbeda setiap kali dipanggil dalam hari yang sama
+    import random
+    random.seed(today.timestamp())
+    index = random.randint(0, len(FUNFACTS_ID) - 1)
+    fact = FUNFACTS_ID[index]
+
     embed = discord.Embed(
-        title="🎲 Trivia Hari Ini!",
-        description=result,
+        title="💡 Fun Fact Indonesia!",
+        description=fact,
         color=0xF1C40F
     )
-    embed.set_footer(text="Klik teks putih untuk reveal jawaban • DayBot • A2M Information")
+    embed.set_footer(text="DayBot • A2M Information")
     await ctx.send(embed=embed)
 
 # ────────────────────────────────────────
