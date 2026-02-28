@@ -8,31 +8,27 @@ import datetime
 import pytz
 import ssl
 import certifi
+import platform
 from dotenv import load_dotenv
 
 # ────────────────────────────────────────
 # LOAD .ENV
 # ────────────────────────────────────────
-# Load .env jika ada (local), Railway pakai env vars langsung
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 dotenv_path = os.path.join(BASE_DIR, 'a2m.env')
 if os.path.exists(dotenv_path):
     load_dotenv(dotenv_path=dotenv_path)
-    print(f"📄 File .env ditemukan: local mode")
+    print("📄 Berjalan di local mode")
 else:
-    print(f"☁️ Berjalan di cloud mode (Railway/Render)")
-
-
-print(f"📁 Mencari .env di: {dotenv_path}")
-print(f"📄 File .env ditemukan: {os.path.exists(dotenv_path)}")
+    print("☁️ Berjalan di cloud mode (Railway)")
 
 TOKEN = os.getenv('DISCORD_TOKEN')
 CHANNEL_ID_RAW = os.getenv('CHANNEL_ID')
 
 if not TOKEN:
-    raise ValueError("DISCORD_TOKEN tidak ditemukan di file .env!")
+    raise ValueError("DISCORD_TOKEN tidak ditemukan!")
 if not CHANNEL_ID_RAW:
-    raise ValueError("CHANNEL_ID tidak ditemukan di file .env!")
+    raise ValueError("CHANNEL_ID tidak ditemukan!")
 
 CHANNEL_ID = int(CHANNEL_ID_RAW)
 
@@ -43,18 +39,6 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-# ────────────────────────────────────────
-# HELPER: SSL CONNECTOR (adaptive macOS vs Linux)
-# ────────────────────────────────────────
-def make_connector():
-    import platform
-    if platform.system() == "Darwin":  # macOS lokal
-        ssl_ctx = ssl.create_default_context(cafile=certifi.where())
-        return aiohttp.TCPConnector(ssl=ssl_ctx)
-    else:  # Linux (Railway) — pakai SSL default sistem
-        return aiohttp.TCPConnector()
-
-
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; A2MBot/1.0)",
     "Accept": "application/json",
@@ -62,41 +46,95 @@ HEADERS = {
 }
 
 # ────────────────────────────────────────
-# FUNGSI: ON THIS DAY (Wikipedia ID)
+# HELPER: SSL CONNECTOR
+# ────────────────────────────────────────
+def make_connector():
+    if platform.system() == "Darwin":  # macOS lokal
+        ssl_ctx = ssl.create_default_context(cafile=certifi.where())
+        return aiohttp.TCPConnector(ssl=ssl_ctx)
+    else:  # Linux (Railway)
+        return aiohttp.TCPConnector()
+
+
+# ────────────────────────────────────────
+# FUNGSI: FUN FACT HARIAN
+# ────────────────────────────────────────
+async def get_fun_fact():
+    try:
+        # Gunakan tanggal sebagai seed agar fun fact sama sepanjang hari
+        today = datetime.datetime.now()
+        seed = today.year * 10000 + today.month * 100 + today.day
+
+        url = f"https://opentdb.com/api.php?amount=1&type=multiple&seed={seed}"
+        async with aiohttp.ClientSession(connector=make_connector()) as session:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=10), headers=HEADERS) as res:
+                print(f"[FunFact] Status: {res.status}")
+                if res.status != 200:
+                    return await get_fun_fact_fallback(session)
+                data = await res.json(content_type=None)
+
+        results = data.get("results", [])
+        if not results:
+            return "Tidak ada fun fact tersedia hari ini."
+
+        item = results[0]
+
+        # Bersihkan HTML entities
+        import html
+        question = html.unescape(item.get("question", ""))
+        answer = html.unescape(item.get("correct_answer", ""))
+        category = html.unescape(item.get("category", ""))
+        difficulty = item.get("difficulty", "").capitalize()
+
+        difficulty_emoji = {"Easy": "🟢", "Medium": "🟡", "Hard": "🔴"}.get(difficulty, "⚪")
+
+        return (
+            f"📂 **Kategori:** {category} {difficulty_emoji} {difficulty}\n\n"
+            f"❓ **{question}**\n\n"
+            f"✅ **Jawaban:** ||{answer}||"
+        )
+
+    except Exception as e:
+        print(f"[FunFact] Exception: {e}")
+        return f"Gagal mengambil fun fact: {e}"
+
+
+async def get_fun_fact_fallback(session):
+    try:
+        url = "https://uselessfacts.jsph.pl/api/facts/random?language=en"
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=10), headers=HEADERS) as res:
+            if res.status != 200:
+                return "Tidak ada fun fact tersedia hari ini."
+            data = await res.json(content_type=None)
+            fact = data.get("text", "Tidak ada fun fact.")
+            return f"💡 **Did You Know?**\n_{fact}_"
+    except Exception as e:
+        return "Tidak ada fun fact tersedia hari ini."
+
+
+# ────────────────────────────────────────
+# FUNGSI: ON THIS DAY
 # ────────────────────────────────────────
 async def get_on_this_day():
     try:
         today = datetime.datetime.now()
-        month = today.month
-        day = today.day
-
-        # Wikipedia ID tidak punya endpoint onthisday, langsung pakai EN
-        url = f"https://en.wikipedia.org/api/rest_v1/feed/onthisday/events/{month}/{day}"
+        url = f"https://en.wikipedia.org/api/rest_v1/feed/onthisday/events/{today.month}/{today.day}"
 
         async with aiohttp.ClientSession(connector=make_connector()) as session:
-            async with session.get(
-                url,
-                timeout=aiohttp.ClientTimeout(total=15),
-                headers=HEADERS
-            ) as res:
-                print(f"[OnThisDay] Status: {res.status}, URL: {url}")
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=15), headers=HEADERS) as res:
+                print(f"[OnThisDay] Status: {res.status}")
                 if res.status != 200:
                     return f"Gagal mengambil data (status {res.status})."
 
-                raw = await res.text()
-                print(f"[OnThisDay] Response preview: {raw[:300]}")
-
                 import json
-                data = json.loads(raw)
+                data = json.loads(await res.text())
 
-        events = data.get("events", data.get("onthisday", []))
-        print(f"[OnThisDay] Total events ditemukan: {len(events)}")
-
+        events = data.get("events", data.get("onthisday", []))[:5]  # ← diubah ke 5
         if not events:
             return "Tidak ada data peristiwa hari ini."
 
         result = []
-        for e in events[:3]:
+        for e in events:
             year = e.get("year", "????")
             text = re.sub(r'\[\d+\]', '', e.get("text", "")).strip()
             if len(text) > 100:
@@ -120,11 +158,58 @@ async def get_on_this_day():
         return f"Gagal mengambil data: {e}"
 
 
+# ────────────────────────────────────────
+# FALLBACK: WIKIPEDIA FEATURED CONTENT
+# ────────────────────────────────────────
+async def get_featured_wikipedia(session):
+    try:
+        today = datetime.datetime.now()
+        url = (
+            f"https://id.wikipedia.org/api/rest_v1/feed/featured/"
+            f"{today.year}/{str(today.month).zfill(2)}/{str(today.day).zfill(2)}"
+        )
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=10), headers=HEADERS) as res:
+            print(f"[Featured ID] Status: {res.status}")
+            if res.status != 200:
+                return "Tidak ada data Wikipedia tersedia hari ini."
+            data = await res.json(content_type=None)
 
+        result = []
+        tfa = data.get("tfa", {})
+        if tfa:
+            title = tfa.get("titles", {}).get("normalized", tfa.get("title", ""))
+            summary = tfa.get("extract", "")[:120] + "..."
+            link = tfa.get("content_urls", {}).get("mobile", {}).get("page", "#")
+            result.append(
+                f"**⭐ {title}**\n"
+                f"_{summary}_\n"
+                f"[Baca Selengkapnya...]({link})"
+            )
+
+        news = data.get("news", [])[:4]
+        for n in news:
+            story = re.sub(r'\[\[.*?\]\]', '', n.get("story", "")).strip()
+            if len(story) > 120:
+                story = story[:120] + "..."
+            links = n.get("links", [])
+            if links:
+                link = links[0].get("content_urls", {}).get("mobile", {}).get("page", "#")
+                result.append(f"**📰 Berita**\n_{story}_\n[Baca Selengkapnya...]({link})")
+
+        return "\n\n".join(result) if result else "Tidak ada data Wikipedia tersedia hari ini."
+
+    except Exception as e:
+        print(f"[Featured] Exception: {e}")
+        return "Tidak ada data Wikipedia tersedia hari ini."
+
+
+# ────────────────────────────────────────
+# FUNGSI: WIKIPEDIA TRENDING
+# ────────────────────────────────────────
 async def get_news():
     try:
         yesterday = datetime.datetime.now() - datetime.timedelta(days=1)
-        url = (
+        url_id = (
             f"https://wikimedia.org/api/rest_v1/metrics/pageviews/top/"
             f"id.wikipedia/all-access/"
             f"{yesterday.year}/{str(yesterday.month).zfill(2)}/{str(yesterday.day).zfill(2)}"
@@ -142,15 +227,13 @@ async def get_news():
         }
 
         async with aiohttp.ClientSession(connector=make_connector()) as session:
-            # Coba ID dulu
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=15), headers=HEADERS) as res:
+            async with session.get(url_id, timeout=aiohttp.ClientTimeout(total=15), headers=HEADERS) as res:
                 print(f"[Trending ID] Status: {res.status}")
                 if res.status == 200:
                     data = await res.json(content_type=None)
                     wiki_base = "https://id.wikipedia.org/wiki/"
                     summary_base = "https://id.wikipedia.org/api/rest_v1/page/summary/"
                 else:
-                    # Fallback ke EN
                     async with session.get(url_en, timeout=aiohttp.ClientTimeout(total=15), headers=HEADERS) as res_en:
                         print(f"[Trending EN] Status: {res_en.status}")
                         if res_en.status == 200:
@@ -158,12 +241,11 @@ async def get_news():
                             wiki_base = "https://en.wikipedia.org/wiki/"
                             summary_base = "https://en.wikipedia.org/api/rest_v1/page/summary/"
                         else:
-                            # Fallback ke Wikipedia Featured Content hari ini
-                            print("[Trending] Semua pageviews API gagal, coba Featured Feed...")
+                            print("[Trending] Semua pageviews gagal, fallback ke Featured...")
                             return await get_featured_wikipedia(session)
 
             articles = data.get("items", [{}])[0].get("articles", [])
-            filtered = [a for a in articles if a.get("article") not in skip][:3]
+            filtered = [a for a in articles if a.get("article") not in skip][:5]  # ← diubah ke 5
 
             if not filtered:
                 return await get_featured_wikipedia(session)
@@ -200,61 +282,13 @@ async def get_news():
 
 
 # ────────────────────────────────────────
-# FALLBACK: WIKIPEDIA FEATURED CONTENT
-# ────────────────────────────────────────
-async def get_featured_wikipedia(session):
-    try:
-        today = datetime.datetime.now()
-        url = (
-            f"https://id.wikipedia.org/api/rest_v1/feed/featured/"
-            f"{today.year}/{str(today.month).zfill(2)}/{str(today.day).zfill(2)}"
-        )
-        async with session.get(url, timeout=aiohttp.ClientTimeout(total=10), headers=HEADERS) as res:
-            print(f"[Featured ID] Status: {res.status}")
-            if res.status != 200:
-                return "Tidak ada data Wikipedia tersedia hari ini."
-            data = await res.json(content_type=None)
-
-        result = []
-
-        # Artikel pilihan hari ini
-        tfa = data.get("tfa", {})
-        if tfa:
-            title = tfa.get("titles", {}).get("normalized", tfa.get("title", ""))
-            summary = tfa.get("extract", "")[:120] + "..."
-            link = tfa.get("content_urls", {}).get("mobile", {}).get("page", "#")
-            result.append(
-                f"**⭐ {title}**\n"
-                f"_{summary}_\n"
-                f"[Baca Selengkapnya...]({link})"
-            )
-
-        # Berita terkini dari Wikipedia
-        news = data.get("news", [])[:2]
-        for n in news:
-            story = re.sub(r'\[\[.*?\]\]', '', n.get("story", "")).strip()
-            if len(story) > 120:
-                story = story[:120] + "..."
-            links = n.get("links", [])
-            if links:
-                link = links[0].get("content_urls", {}).get("mobile", {}).get("page", "#")
-                result.append(f"**📰 Berita**\n_{story}_\n[Baca Selengkapnya...]({link})")
-
-        return "\n\n".join(result) if result else "Tidak ada data Wikipedia tersedia hari ini."
-
-    except Exception as e:
-        print(f"[Featured] Exception: {e}")
-        return "Tidak ada data Wikipedia tersedia hari ini."
-
-
-
-# ────────────────────────────────────────
 # HELPER: BUILD EMBED
 # ────────────────────────────────────────
 async def build_embed(title_prefix="📆 Daily Update"):
-    on_this_day, news = await asyncio.gather(
+    on_this_day, news, fun_fact = await asyncio.gather(
         get_on_this_day(),
-        get_news()
+        get_news(),
+        get_fun_fact()
     )
     embed = discord.Embed(
         title=f"{title_prefix} — {datetime.datetime.now().strftime('%d %B %Y')}",
@@ -263,6 +297,7 @@ async def build_embed(title_prefix="📆 Daily Update"):
     )
     embed.add_field(name="🗓️ On This Day", value=on_this_day, inline=False)
     embed.add_field(name="📖 Artikel Wikipedia Trending Hari Ini", value=news, inline=False)
+    embed.add_field(name="🎲 Fun Fact & Trivia Hari Ini", value=fun_fact, inline=False)
     embed.set_footer(text="DayBot • A2M Information")
     return embed
 
@@ -277,7 +312,7 @@ async def build_embed(title_prefix="📆 Daily Update"):
 async def daily_update():
     channel = bot.get_channel(CHANNEL_ID)
     if channel:
-        print(f"[Daily Update] Mengirim update harian...")
+        print("[Daily Update] Mengirim update harian...")
         embed = await build_embed("📆 Daily Update")
         await channel.send(embed=embed)
     else:
@@ -298,6 +333,53 @@ async def on_ready():
 
 
 # ────────────────────────────────────────
+# FUNGSI: RANDOM TRIVIA (untuk command !trivia)
+# ────────────────────────────────────────
+async def get_random_trivia():
+    try:
+        # Tanpa seed = random setiap kali dipanggil
+        url = "https://opentdb.com/api.php?amount=1&type=multiple"
+        async with aiohttp.ClientSession(connector=make_connector()) as session:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=10), headers=HEADERS) as res:
+                print(f"[RandomTrivia] Status: {res.status}")
+                if res.status != 200:
+                    return "Gagal mengambil trivia, coba lagi!"
+                data = await res.json(content_type=None)
+
+        results = data.get("results", [])
+        if not results:
+            return "Tidak ada trivia tersedia."
+
+        import html
+        item = results[0]
+        question = html.unescape(item.get("question", ""))
+        answer = html.unescape(item.get("correct_answer", ""))
+        category = html.unescape(item.get("category", ""))
+        difficulty = item.get("difficulty", "").capitalize()
+        wrong_answers = [html.unescape(a) for a in item.get("incorrect_answers", [])]
+
+        difficulty_emoji = {"Easy": "🟢", "Medium": "🟡", "Hard": "🔴"}.get(difficulty, "⚪")
+
+        # Gabungkan semua pilihan jawaban dan acak urutannya
+        import random
+        all_answers = wrong_answers + [answer]
+        random.shuffle(all_answers)
+        options = "\n".join([f"{'🅰🅱🅾🆂'[i]} {a}" for i, a in enumerate(all_answers)])
+
+        return (
+            f"📂 **Kategori:** {category} {difficulty_emoji} {difficulty}\n\n"
+            f"❓ **{question}**\n\n"
+            f"{options}\n\n"
+            f"✅ **Jawaban:** ||{answer}||"
+        )
+
+    except Exception as e:
+        print(f"[RandomTrivia] Exception: {e}")
+        return f"Gagal mengambil trivia: {e}"
+
+
+
+# ────────────────────────────────────────
 # COMMAND: !today
 # ────────────────────────────────────────
 @bot.command()
@@ -314,6 +396,20 @@ async def today(ctx):
 async def ping(ctx):
     await ctx.send(f"🏓 Pong! Bot aktif. Latency: {round(bot.latency * 1000)}ms")
 
+# ────────────────────────────────────────
+# COMMAND: !trivia
+# ────────────────────────────────────────
+@bot.command()
+async def trivia(ctx):
+    await ctx.send("🎲 Mengambil trivia, mohon tunggu...")
+    result = await get_random_trivia()
+    embed = discord.Embed(
+        title="🎲 Trivia Hari Ini!",
+        description=result,
+        color=0xF1C40F
+    )
+    embed.set_footer(text="Klik teks putih untuk reveal jawaban • DayBot • A2M Information")
+    await ctx.send(embed=embed)
 
 # ────────────────────────────────────────
 # JALANKAN BOT
