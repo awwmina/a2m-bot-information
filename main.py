@@ -276,8 +276,8 @@ async def get_news():
         f"👁️ {views} views • [Baca Selengkapnya...]({link})"
     )
 
-            results = await asyncio.gather(*[fetch_summary(a) for a in filtered])
-            return "\n\n".join(results)
+    results = await asyncio.gather(*[fetch_summary(a) for a in filtered])
+    return "\n\n".join(results)
 
     except Exception as e:
         print(f"[Wikipedia] Exception: {e}")
