@@ -44,11 +44,16 @@ intents.message_content = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
 # ────────────────────────────────────────
-# HELPER: SSL CONNECTOR
+# HELPER: SSL CONNECTOR (adaptive macOS vs Linux)
 # ────────────────────────────────────────
 def make_connector():
-    ssl_ctx = ssl.create_default_context(cafile=certifi.where())
-    return aiohttp.TCPConnector(ssl=ssl_ctx)
+    import platform
+    if platform.system() == "Darwin":  # macOS lokal
+        ssl_ctx = ssl.create_default_context(cafile=certifi.where())
+        return aiohttp.TCPConnector(ssl=ssl_ctx)
+    else:  # Linux (Railway) — pakai SSL default sistem
+        return aiohttp.TCPConnector()
+
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; A2MBot/1.0)",
@@ -116,9 +121,6 @@ async def get_on_this_day():
 
 
 
-# ────────────────────────────────────────
-# FUNGSI: WIKIPEDIA TRENDING
-# ────────────────────────────────────────
 async def get_news():
     try:
         yesterday = datetime.datetime.now() - datetime.timedelta(days=1)
@@ -127,7 +129,11 @@ async def get_news():
             f"id.wikipedia/all-access/"
             f"{yesterday.year}/{str(yesterday.month).zfill(2)}/{str(yesterday.day).zfill(2)}"
         )
-
+        url_en = (
+            f"https://wikimedia.org/api/rest_v1/metrics/pageviews/top/"
+            f"en.wikipedia/all-access/"
+            f"{yesterday.year}/{str(yesterday.month).zfill(2)}/{str(yesterday.day).zfill(2)}"
+        )
         skip = {
             "Halaman_Utama", "Main_Page", "Special:Search", "-",
             "Wikipedia:Featured_pictures", "Special:Random",
@@ -136,33 +142,31 @@ async def get_news():
         }
 
         async with aiohttp.ClientSession(connector=make_connector()) as session:
+            # Coba ID dulu
             async with session.get(url, timeout=aiohttp.ClientTimeout(total=15), headers=HEADERS) as res:
-                print(f"[Wikipedia Trending ID] Status: {res.status}")
-
-                # Fallback ke Wikipedia English jika ID tidak ada data
-                if res.status != 200:
-                    url_en = (
-                        f"https://wikimedia.org/api/rest_v1/metrics/pageviews/top/"
-                        f"en.wikipedia/all-access/"
-                        f"{yesterday.year}/{str(yesterday.month).zfill(2)}/{str(yesterday.day).zfill(2)}"
-                    )
-                    async with session.get(url_en, timeout=aiohttp.ClientTimeout(total=15), headers=HEADERS) as res_en:
-                        print(f"[Wikipedia Trending EN] Status: {res_en.status}")
-                        if res_en.status != 200:
-                            return f"API tidak merespons."
-                        data = await res_en.json(content_type=None)
-                        wiki_base = "https://en.wikipedia.org/wiki/"
-                        summary_base = "https://en.wikipedia.org/api/rest_v1/page/summary/"
-                else:
+                print(f"[Trending ID] Status: {res.status}")
+                if res.status == 200:
                     data = await res.json(content_type=None)
                     wiki_base = "https://id.wikipedia.org/wiki/"
                     summary_base = "https://id.wikipedia.org/api/rest_v1/page/summary/"
+                else:
+                    # Fallback ke EN
+                    async with session.get(url_en, timeout=aiohttp.ClientTimeout(total=15), headers=HEADERS) as res_en:
+                        print(f"[Trending EN] Status: {res_en.status}")
+                        if res_en.status == 200:
+                            data = await res_en.json(content_type=None)
+                            wiki_base = "https://en.wikipedia.org/wiki/"
+                            summary_base = "https://en.wikipedia.org/api/rest_v1/page/summary/"
+                        else:
+                            # Fallback ke Wikipedia Featured Content hari ini
+                            print("[Trending] Semua pageviews API gagal, coba Featured Feed...")
+                            return await get_featured_wikipedia(session)
 
             articles = data.get("items", [{}])[0].get("articles", [])
             filtered = [a for a in articles if a.get("article") not in skip][:3]
 
             if not filtered:
-                return "Tidak ada data Wikipedia tersedia."
+                return await get_featured_wikipedia(session)
 
             async def fetch_summary(article):
                 raw_title = article.get("article", "")
@@ -188,12 +192,60 @@ async def get_news():
                 )
 
             results = await asyncio.gather(*[fetch_summary(a) for a in filtered])
-
-        return "\n\n".join(results)
+            return "\n\n".join(results)
 
     except Exception as e:
         print(f"[Wikipedia] Exception: {e}")
         return f"Gagal mengambil data Wikipedia: {e}"
+
+
+# ────────────────────────────────────────
+# FALLBACK: WIKIPEDIA FEATURED CONTENT
+# ────────────────────────────────────────
+async def get_featured_wikipedia(session):
+    try:
+        today = datetime.datetime.now()
+        url = (
+            f"https://id.wikipedia.org/api/rest_v1/feed/featured/"
+            f"{today.year}/{str(today.month).zfill(2)}/{str(today.day).zfill(2)}"
+        )
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=10), headers=HEADERS) as res:
+            print(f"[Featured ID] Status: {res.status}")
+            if res.status != 200:
+                return "Tidak ada data Wikipedia tersedia hari ini."
+            data = await res.json(content_type=None)
+
+        result = []
+
+        # Artikel pilihan hari ini
+        tfa = data.get("tfa", {})
+        if tfa:
+            title = tfa.get("titles", {}).get("normalized", tfa.get("title", ""))
+            summary = tfa.get("extract", "")[:120] + "..."
+            link = tfa.get("content_urls", {}).get("mobile", {}).get("page", "#")
+            result.append(
+                f"**⭐ {title}**\n"
+                f"_{summary}_\n"
+                f"[Baca Selengkapnya...]({link})"
+            )
+
+        # Berita terkini dari Wikipedia
+        news = data.get("news", [])[:2]
+        for n in news:
+            story = re.sub(r'\[\[.*?\]\]', '', n.get("story", "")).strip()
+            if len(story) > 120:
+                story = story[:120] + "..."
+            links = n.get("links", [])
+            if links:
+                link = links[0].get("content_urls", {}).get("mobile", {}).get("page", "#")
+                result.append(f"**📰 Berita**\n_{story}_\n[Baca Selengkapnya...]({link})")
+
+        return "\n\n".join(result) if result else "Tidak ada data Wikipedia tersedia hari ini."
+
+    except Exception as e:
+        print(f"[Featured] Exception: {e}")
+        return "Tidak ada data Wikipedia tersedia hari ini."
+
 
 
 # ────────────────────────────────────────
