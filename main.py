@@ -9,9 +9,9 @@ import pytz
 import ssl
 import certifi
 import platform
-import html
 import json
 import random
+import feedparser
 from dotenv import load_dotenv
 
 # ────────────────────────────────────────
@@ -44,9 +44,15 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; A2MBot/1.0)",
-    "Accept": "application/json",
+    "Accept": "application/json, text/html, application/xhtml+xml",
     "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8"
 }
+
+RSS_FEEDS = [
+    ("https://rss.kompas.com/nasional/feed/headlines.rss", "Kompas Nasional"),
+    ("https://rss.kompas.com/money/feed/headlines.rss", "Kompas Ekonomi"),
+    ("https://rss.kompas.com/tekno/feed/headlines.rss", "Kompas Teknologi"),
+]
 
 # ────────────────────────────────────────
 # HELPER: SSL CONNECTOR
@@ -111,7 +117,11 @@ async def get_on_this_day():
         url = f"https://en.wikipedia.org/api/rest_v1/feed/onthisday/events/{today.month}/{today.day}"
 
         async with aiohttp.ClientSession(connector=make_connector()) as session:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=15), headers=HEADERS) as res:
+            async with session.get(
+                url,
+                timeout=aiohttp.ClientTimeout(total=15),
+                headers=HEADERS
+            ) as res:
                 print(f"[OnThisDay] Status: {res.status}")
                 if res.status != 200:
                     return f"Gagal mengambil data (status {res.status})."
@@ -131,7 +141,10 @@ async def get_on_this_day():
             if pages:
                 page_title = pages[0].get("title", "").replace(" ", "_")
                 link = f"https://en.wikipedia.org/wiki/{page_title}"
-                result.append(f"**{year}** — {text}\n[Baca Selengkapnya...]({link})")
+                result.append(
+                    f"**{year}** — {text}\n"
+                    f"[Baca Selengkapnya...]({link})"
+                )
             else:
                 result.append(f"**{year}** — {text}")
 
@@ -142,122 +155,60 @@ async def get_on_this_day():
         return f"Gagal mengambil data: {e}"
 
 # ────────────────────────────────────────
-# FALLBACK: WIKIPEDIA FEATURED CONTENT
-# ────────────────────────────────────────
-async def get_featured_wikipedia(session):
-    try:
-        today = datetime.datetime.now()
-        url = (
-            f"https://id.wikipedia.org/api/rest_v1/feed/featured/"
-            f"{today.year}/{str(today.month).zfill(2)}/{str(today.day).zfill(2)}"
-        )
-        async with session.get(url, timeout=aiohttp.ClientTimeout(total=10), headers=HEADERS) as res:
-            print(f"[Featured ID] Status: {res.status}")
-            if res.status != 200:
-                return "Tidak ada data Wikipedia tersedia hari ini."
-            data = await res.json(content_type=None)
-
-        result = []
-        tfa = data.get("tfa", {})
-        if tfa:
-            title = tfa.get("titles", {}).get("normalized", tfa.get("title", ""))
-            summary = tfa.get("extract", "")[:50] + "..."
-            link = tfa.get("content_urls", {}).get("mobile", {}).get("page", "#")
-            result.append(f"**⭐ {title}**\n_{summary}_\n[Baca Selengkapnya...]({link})")
-
-        news = data.get("news", [])[:4]
-        for n in news:
-            story = re.sub(r'\[\[.*?\]\]', '', n.get("story", "")).strip()
-            if len(story) > 50:
-                story = story[:50] + "..."
-            links = n.get("links", [])
-            if links:
-                link = links[0].get("content_urls", {}).get("mobile", {}).get("page", "#")
-                result.append(f"**📰 Berita**\n_{story}_\n[Baca Selengkapnya...]({link})")
-
-        return "\n\n".join(result) if result else "Tidak ada data Wikipedia tersedia hari ini."
-
-    except Exception as e:
-        print(f"[Featured] Exception: {e}")
-        return "Tidak ada data Wikipedia tersedia hari ini."
-
-# ────────────────────────────────────────
-# FUNGSI: WIKIPEDIA TRENDING
+# FUNGSI: BERITA TERBARU (RSS Feed)
 # ────────────────────────────────────────
 async def get_news():
     try:
-        yesterday = datetime.datetime.now() - datetime.timedelta(days=1)
-        url_id = (
-            f"https://wikimedia.org/api/rest_v1/metrics/pageviews/top/"
-            f"id.wikipedia/all-access/"
-            f"{yesterday.year}/{str(yesterday.month).zfill(2)}/{str(yesterday.day).zfill(2)}"
-        )
-        url_en = (
-            f"https://wikimedia.org/api/rest_v1/metrics/pageviews/top/"
-            f"en.wikipedia/all-access/"
-            f"{yesterday.year}/{str(yesterday.month).zfill(2)}/{str(yesterday.day).zfill(2)}"
-        )
-        skip = {
-            "Halaman_Utama", "Main_Page", "Special:Search", "-",
-            "Wikipedia:Featured_pictures", "Special:Random",
-            "Portal:Current_events", "Wikipedia", ".xxx",
-            "Special:Book", "Help:Contents", "Istimewa:Pencarian"
-        }
+        all_news = []
 
         async with aiohttp.ClientSession(connector=make_connector()) as session:
-            async with session.get(url_id, timeout=aiohttp.ClientTimeout(total=15), headers=HEADERS) as res:
-                print(f"[Trending ID] Status: {res.status}")
-                if res.status == 200:
-                    data = await res.json(content_type=None)
-                    wiki_base = "https://id.wikipedia.org/wiki/"
-                    summary_base = "https://id.wikipedia.org/api/rest_v1/page/summary/"
-                else:
-                    async with session.get(url_en, timeout=aiohttp.ClientTimeout(total=15), headers=HEADERS) as res_en:
-                        print(f"[Trending EN] Status: {res_en.status}")
-                        if res_en.status == 200:
-                            data = await res_en.json(content_type=None)
-                            wiki_base = "https://en.wikipedia.org/wiki/"
-                            summary_base = "https://en.wikipedia.org/api/rest_v1/page/summary/"
-                        else:
-                            print("[Trending] Semua pageviews gagal, fallback ke Featured...")
-                            return await get_featured_wikipedia(session)
-
-            articles = data.get("items", [{}])[0].get("articles", [])
-            filtered = [a for a in articles if a.get("article") not in skip][:5]
-
-            if not filtered:
-                return await get_featured_wikipedia(session)
-
-            async def fetch_summary(article):
-                raw_title = article.get("article", "")
-                title = raw_title.replace("_", " ")
-                if len(title) > 35:
-                    title = title[:35] + "..."
-                views = f"{article.get('views', 0):,}"
-                link = f"{wiki_base}{raw_title}"
-
+            for feed_url, source_name in RSS_FEEDS:
                 async with session.get(
-                    f"{summary_base}{raw_title}",
+                    feed_url,
                     timeout=aiohttp.ClientTimeout(total=10),
                     headers=HEADERS
-                ) as r:
-                    s = await r.json(content_type=None)
-                    summary = s.get("extract", "Tidak ada ringkasan.")
-                    if len(summary) > 50:
-                        summary = summary[:50] + "..."
+                ) as res:
+                    print(f"[RSS {source_name}] Status: {res.status}")
+                    if res.status != 200:
+                        continue
 
-                return (
-                    f"**{title}**\n"
-                    f"_{summary}_\n"
-                    f"👁️ {views} views • [Baca Selengkapnya...]({link})"
-                )
+                    content = await res.text()
+                    feed = feedparser.parse(content)
 
-            results = await asyncio.gather(*[fetch_summary(a) for a in filtered])
-            return "\n\n".join(results)
+                    for entry in feed.entries[:3]:
+                        title = entry.get("title", "Tanpa Judul").strip()
+                        link = entry.get("link", "#")
+                        summary = entry.get("summary", entry.get("description", ""))
+
+                        # Bersihkan HTML dari summary
+                        summary = re.sub(r'<.*?>', '', summary).strip()
+                        if len(summary) > 80:
+                            summary = summary[:80] + "..."
+
+                        all_news.append((title, summary, link, source_name))
+
+                        if len(all_news) >= 5:
+                            break
+
+                if len(all_news) >= 5:
+                    break
+
+        if not all_news:
+            return "Tidak ada berita tersedia saat ini."
+
+        result = []
+        for title, summary, link, source in all_news:
+            result.append(
+                f"**{title}**\n"
+                f"_{summary}_\n"
+                f"🗞️ {source} • [Baca Selengkapnya...]({link})"
+            )
+
+        return "\n\n".join(result)
 
     except Exception as e:
-        print(f"[Wikipedia] Exception: {e}")
-        return f"Gagal mengambil data Wikipedia: {e}"
+        print(f"[RSS] Exception: {e}")
+        return f"Gagal mengambil berita: {e}"
 
 # ────────────────────────────────────────
 # HELPER: BUILD EMBED
@@ -274,7 +225,7 @@ async def build_embed(title_prefix="📆 Daily Update"):
         color=0x5865F2
     )
     embed.add_field(name="🗓️ On This Day", value=on_this_day, inline=False)
-    embed.add_field(name="📖 Artikel Wikipedia Trending Hari Ini", value=news, inline=False)
+    embed.add_field(name="🗞️ Berita Terbaru Hari Ini", value=news, inline=False)
     embed.add_field(name="💡 Fun Fact Hari Ini", value=fun_fact, inline=False)
     embed.set_footer(text="DayBot • A2M Information")
     return embed
