@@ -49,9 +49,9 @@ HEADERS = {
 }
 
 RSS_FEEDS = [
-    ("https://rss.kompas.com/nasional/feed/headlines.rss", "Kompas Nasional"),
-    ("https://rss.kompas.com/money/feed/headlines.rss", "Kompas Ekonomi"),
-    ("https://rss.kompas.com/tekno/feed/headlines.rss", "Kompas Teknologi"),
+    ("https://www.antaranews.com/rss/top-news", "Antara Top News"),
+    ("https://news.detik.com/berita/rss", "Detik News"),
+    ("https://www.antaranews.com/rss/ekonomi", "Antara Ekonomi"),
 ]
 
 # ────────────────────────────────────────
@@ -163,35 +163,45 @@ async def get_news():
 
         async with aiohttp.ClientSession(connector=make_connector()) as session:
             for feed_url, source_name in RSS_FEEDS:
-                async with session.get(
-                    feed_url,
-                    timeout=aiohttp.ClientTimeout(total=10),
-                    headers=HEADERS
-                ) as res:
-                    print(f"[RSS {source_name}] Status: {res.status}")
-                    if res.status != 200:
-                        continue
+                try:
+                    async with session.get(
+                        feed_url,
+                        timeout=aiohttp.ClientTimeout(total=10),
+                        headers=HEADERS
+                    ) as res:
+                        print(f"[RSS {source_name}] Status: {res.status}")
+                        if res.status != 200:
+                            continue
 
-                    content = await res.text()
-                    feed = feedparser.parse(content)
+                        content = await res.text()
+                        feed = feedparser.parse(content)
 
-                    for entry in feed.entries[:3]:
-                        title = entry.get("title", "Tanpa Judul").strip()
-                        link = entry.get("link", "#")
-                        summary = entry.get("summary", entry.get("description", ""))
+                        if not feed.entries:
+                            continue
 
-                        # Bersihkan HTML dari summary
-                        summary = re.sub(r'<.*?>', '', summary).strip()
-                        if len(summary) > 80:
-                            summary = summary[:80] + "..."
+                        for entry in feed.entries[:2]:
+                            title = entry.get("title", "Tanpa Judul").strip()
+                            if len(title) > 55:
+                                title = title[:55] + "..."
+                            link = entry.get("link", "#")
+                            summary = entry.get("summary", entry.get("description", ""))
+                            summary = re.sub(r'<.*?>', '', summary).strip()
+                            if len(summary) > 55:
+                                summary = summary[:55] + "..."
 
-                        all_news.append((title, summary, link, source_name))
+                            all_news.append((title, summary, link, source_name))
 
-                        if len(all_news) >= 5:
-                            break
+                            if len(all_news) >= 3:
+                                break
 
-                if len(all_news) >= 5:
+                except Exception as feed_error:
+                    print(f"[RSS {source_name}] Exception: {feed_error}")
+                    continue
+
+                if len(all_news) >= 3:
                     break
+
+        print(f"[RSS] Total berita: {len(all_news)}")
 
         if not all_news:
             return "Tidak ada berita tersedia saat ini."
@@ -207,7 +217,7 @@ async def get_news():
         return "\n\n".join(result)
 
     except Exception as e:
-        print(f"[RSS] Exception: {e}")
+        print(f"[RSS] Exception utama: {e}")
         return f"Gagal mengambil berita: {e}"
 
 # ────────────────────────────────────────
